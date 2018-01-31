@@ -88,19 +88,49 @@ function install_apt(){
 
 # Main
 function main() {
-
-  echo "deb [arch=amd64] https://apt-mo.trafficmanager.net/repos/dotnet-release/ trusty main" > /etc/apt/sources.list.d/dotnetdev.list && \
-  apt-key adv --keyserver apt-mo.trafficmanager.net --recv-keys 417A0893 && \
-  apt-get -y update && \
-  apt-get -y install dotnet-dev-1.0.0-preview2-003121 && \
-  \
-  apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF && \
-  echo "deb http://download.mono-project.com/repo/debian wheezy/snapshots/4.2.4 main" | tee /etc/apt/sources.list.d/mono-xamarin.list && \
-  apt-get -y update && \
-  apt-get -y install curl g++ pkg-config libgdiplus libunwind8 libssl-dev make mono-complete gettext libssl-dev libcurl4-openssl-dev zlib1g libicu-dev uuid-dev unzip && \
-  \
-  npm i tjanczuk/edge && \
-  npm cache clean
+create_dirs
+    
+    # Test cache dirs and environment
+    if [[ $USE_CACHE -ne 1 ]] || [[ ! -d $CACHE_DIR/dirs/.apt ]] || [[ ! -d $CACHE_DIR/dirs/temp ]]; then
+        topic "Add gpg keys..."
+        cp -a /etc/apt/trusted.gpg $BUILD_DIR/temp/trusted.gpg
+        apt-key --keyring $BUILD_DIR/temp/trusted.gpg adv --keyserver keyserver.ubuntu.com --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF 2>&1 | indent
+        apt-key --keyring $BUILD_DIR/temp/trusted.gpg adv --keyserver keyserver.ubuntu.com --recv-keys 126C0D24BD8A2942CC7DF8AC7638D0442B90D010 2>&1 | indent
+       
+        topic "Updating apt caches"
+        apt-get $APT_OPTIONS update 2>&1 | indent
+    
+        # Install build dependencies
+        install_apt $LP_DIR/conf/Apttemp 
+        install_apt $LP_DIR/conf/Aptfile
+        topic "Creating cache directories..."
+        cp -ra $BUILD_DIR/.apt $CACHE_DIR/dirs/ 2>&1 | indent
+        cp -ra $BUILD_DIR/temp $CACHE_DIR/dirs/ 2>&1 | indent
+    else
+        topic "Restoring .apt and temp from cache..."
+        cp -ra $CACHE_DIR/dirs/.apt $BUILD_DIR/ 2>&1 | indent
+        echo "Restored .apt in $BUILD_DIR/.apt" | indent
+        cp -ra $CACHE_DIR/dirs/temp $BUILD_DIR/
+        echo "Restored temp in $BUILD_DIR/temp" | indent
+    fi
+    
+    
+    topic "Copy profile script..."
+    cp -ra $LP_DIR/conf/000_apt.sh $BUILD_DIR/.profile.d/000_apt.sh
+    chmod +x $BUILD_DIR/.profile.d/000_apt.sh
+    
+    export PATH="$BUILD_DIR/.apt/usr/bin:$PATH"
+    export LD_LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib"
+    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$BUILD_DIR/temp/usr/lib/x86_64-linux-gnu:$BUILD_DIR/temp/usr/lib/i386-linux-gnu:$BUILD_DIR/temp/usr/lib:$LD_LIBRARY_PATH"
+    export LIBRARY_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu:$BUILD_DIR/.apt/usr/lib"
+    export LIBRARY_PATH="$LIBRARY_PATH:$BUILD_DIR/temp/usr/lib/x86_64-linux-gnu:$BUILD_DIR/temp/usr/lib/i386-linux-gnu:$BUILD_DIR/temp/usr/lib:$LIBRARY_PATH"
+    export INCLUDE_PATH="$BUILD_DIR/.apt/usr/include:$BUILD_DIR/temp/usr/include$INCLUDE_PATH"
+    export CPATH="$INCLUDE_PATH"
+    export CPPPATH="$INCLUDE_PATH"
+    export PKG_CONFIG_PATH="$BUILD_DIR/.apt/usr/lib/x86_64-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/i386-linux-gnu/pkgconfig:$BUILD_DIR/.apt/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
+      
+    # Change mono paths to avoid node-gyp install crash
+    sed -e "s|.*/usr/|$BUILD_DIR/temp/usr/|g" -i $BUILD_DIR/temp/usr/bin/dmcs 2>&1 | indent
 }
 
 main
